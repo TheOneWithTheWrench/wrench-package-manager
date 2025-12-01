@@ -12,17 +12,6 @@ local processed = {}
 ---@type table<string, boolean>
 local synced = {}
 
---- Tracks which plugins have been updated (deduplication).
----@type table<string, boolean>
-local updated = {}
-
----Resets the processed/synced sets. Call between separate sessions if needed.
-function M.reset()
-	processed = {}
-	synced = {}
-	updated = {}
-end
-
 ---Processes a single plugin (and its dependencies).
 ---@param plugin PluginConfig The plugin to process.
 ---@param lock_data LockData The lockfile data to update.
@@ -69,9 +58,8 @@ function M.plugin(plugin, lock_data)
 	-- Ensure lockfile entry exists
 	if not lock_data[url] then
 		local commit = git.get_head(install_path)
-		local branch = plugin.branch or git.get_branch(install_path)
-		if commit and branch then
-			lock_data[url] = { branch = branch, commit = commit }
+		if commit then
+			lock_data[url] = commit
 			lock_changed = true
 		end
 	end
@@ -168,8 +156,8 @@ function M.sync(plugin, lock_data)
 		log.error("Failed to sync " .. url .. ": " .. err)
 	end
 
-	if new_commit and plugin.branch then
-		lock_data[url] = { branch = plugin.branch, commit = new_commit }
+	if new_commit then
+		lock_data[url] = new_commit
 		lock_changed = true
 	end
 
@@ -178,9 +166,9 @@ end
 
 ---Restores a plugin to the commit specified in lockfile.
 ---@param url string The plugin URL.
----@param lock_entry LockEntry The lockfile entry for this plugin.
+---@param commit string The commit SHA to restore to.
 ---@return boolean success True if restore succeeded.
-function M.restore(url, lock_entry)
+function M.restore(url, commit)
 	local install_path = utils.get_install_path(url)
 
 	if vim.fn.isdirectory(install_path) == 0 then
@@ -189,93 +177,18 @@ function M.restore(url, lock_entry)
 	end
 
 	local current_commit = git.get_head(install_path)
-	if current_commit == lock_entry.commit then
+	if current_commit == commit then
 		return true -- Already at correct commit
 	end
 
-	local ok, err = git.checkout(install_path, lock_entry.commit)
+	local ok, err = git.checkout(install_path, commit)
 	if ok then
-		log.info("Restored " .. url .. " to " .. lock_entry.commit:sub(1, 7))
+		log.info("Restored " .. url .. " to " .. commit:sub(1, 7))
 		return true
 	else
 		log.error("Failed to restore " .. url .. ": " .. (err or "unknown error"))
 		return false
 	end
-end
-
----Updates lockfile with latest remote commits (no checkout).
----Skips plugins with pinned commits.
----@param plugin PluginConfig The plugin to update.
----@param lock_data LockData The lockfile data to update.
----@return boolean lock_changed True if lockfile was updated.
-function M.update(plugin, lock_data)
-	local url = plugin[1] or plugin.url
-
-	-- Skip if already updated (deduplication)
-	if updated[url] then
-		return false
-	end
-	updated[url] = true
-
-	local lock_changed = false
-
-	-- Update dependencies first
-	if plugin.dependencies then
-		for _, dep in ipairs(plugin.dependencies) do
-			if M.update(dep, lock_data) then
-				lock_changed = true
-			end
-		end
-	end
-
-	local install_path = utils.get_install_path(url)
-
-	-- Skip if not installed
-	if vim.fn.isdirectory(install_path) == 0 then
-		return lock_changed
-	end
-
-	-- Skip if pinned to specific commit
-	if plugin.commit then
-		log.info("Skipping " .. url .. " (pinned to commit)")
-		return lock_changed
-	end
-
-	-- Fetch latest from remote
-	local ok, err = git.fetch(install_path)
-	if not ok then
-		log.error("Failed to fetch " .. url .. ": " .. (err or "unknown error"))
-		return lock_changed
-	end
-
-	local new_commit
-
-	if plugin.tag then
-		-- For tags, get the commit the tag points to after fetch
-		-- (tags rarely change, but this handles it)
-		ok, err = git.checkout(install_path, plugin.tag)
-		if ok then
-			new_commit = git.get_head(install_path)
-		end
-	elseif plugin.branch then
-		-- Get the remote branch HEAD (without checking out)
-		new_commit, err = git.get_remote_head(install_path, plugin.branch)
-	end
-
-	if not new_commit then
-		log.error("Failed to get latest commit for " .. url .. ": " .. (err or "unknown error"))
-		return lock_changed
-	end
-
-	-- Update lockfile if commit changed
-	local current = lock_data[url]
-	if not current or current.commit ~= new_commit then
-		lock_data[url] = { branch = plugin.branch, commit = new_commit }
-		log.info("Updated " .. url .. " → " .. new_commit:sub(1, 7))
-		lock_changed = true
-	end
-
-	return lock_changed
 end
 
 ---Removes a plugin directory.

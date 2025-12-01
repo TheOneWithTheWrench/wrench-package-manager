@@ -139,7 +139,7 @@ function M.update()
 
 	-- Phase 3: Apply approved updates to lockfile
 	for _, info in ipairs(approved) do
-		lock_data[info.url] = { branch = lock_data[info.url].branch, commit = info.new_commit }
+		lock_data[info.url] = info.new_commit
 	end
 
 	local ok, write_err = lockfile.write(utils.LOCKFILE_PATH, lock_data)

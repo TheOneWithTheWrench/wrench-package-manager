@@ -1,10 +1,6 @@
 local M = {}
 
----@class LockEntry
----@field branch string The branch the plugin is on.
----@field commit string The commit SHA.
-
----@alias LockData table<string, LockEntry> Map of plugin URL to lock entry.
+---@alias LockData table<string, string> Map of plugin URL to commit SHA.
 
 ---Reads the lockfile from disk.
 ---@param path string Path to the lockfile.
@@ -34,9 +30,9 @@ local function format_json(data)
     local keys = vim.tbl_keys(data)
     table.sort(keys)
     for i, url in ipairs(keys) do
-        local entry = data[url]
+        local commit = data[url]
         local comma = i < #keys and "," or ""
-        table.insert(lines, string.format('  "%s": {"branch": "%s", "commit": "%s"}%s', url, entry.branch, entry.commit, comma))
+        table.insert(lines, string.format('  "%s": "%s"%s', url, commit, comma))
     end
     table.insert(lines, "}")
     return table.concat(lines, "\n")

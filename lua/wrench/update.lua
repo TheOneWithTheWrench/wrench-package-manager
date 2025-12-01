@@ -91,13 +91,13 @@ function M.collect_all(plugins, lock_data)
             goto continue
         end
 
-        local lock_entry = lock_data[url]
-        if not lock_entry or not plugin.branch then
+        local current_commit = lock_data[url]
+        if not current_commit or not plugin.branch then
             goto continue
         end
 
         log.info("Checking " .. utils.get_name(url) .. "...")
-        local info = M.collect_one(url, plugin.branch, lock_entry.commit)
+        local info = M.collect_one(url, plugin.branch, current_commit)
         if info then
             table.insert(updates, info)
         end
