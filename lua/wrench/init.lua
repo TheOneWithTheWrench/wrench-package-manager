@@ -12,46 +12,47 @@ local loader = require("wrench.loader")
 
 commands.setup()
 
---- All registered plugins across add() calls.
----@type PluginList
-local registered_plugins = {}
+--- The merged spec map (URL → canonical spec).
+---@type PluginMap
+local spec_map = {}
 
----@class PluginConfig
----@field url string The full plugin URL. This must be the first element, e.g., { "https://github.com/owner/repo" }.
----@field dependencies? PluginConfig[] (Optional) A list of other plugins that will be loaded first.
+---@class DependencyRef
+---@field url string The plugin URL. This is the ONLY allowed field for dependencies.
+
+---@class PluginSpec
+---@field url string The full plugin URL.
+---@field dependencies? DependencyRef[] (Optional) Plugins that must be loaded first (url only).
 ---@field branch? string (Optional) Specify a git branch to clone.
 ---@field tag? string (Optional) Specify a git tag to checkout.
 ---@field commit? string (Optional) Pin to a specific commit hash.
 ---@field config? function (Optional) A function to run after the plugin is loaded.
 ---@field ft? string[] (Optional) Only load plugin when opening files of this type.
 
---- A list of plugins to be processed, each as a PluginConfig table.
----@alias PluginList PluginConfig[]
+--- A list of plugins to be processed, each as a PluginSpec table.
+---@alias PluginList PluginSpec[]
 
---- Adds and processes a list of plugins.
----@param plugins PluginList A list of PluginConfig tables.
+--- A map of plugin URL to its canonical spec.
+---@alias PluginMap table<string, PluginSpec>
+
+--- Adds and processes a map of plugins.
+---@param plugins PluginMap A map of URL to PluginSpec.
 function M.add(plugins)
 	if not plugins or type(plugins) ~= "table" then
-		log.error("add() requires a table of PluginConfigs.")
+		log.error("add() requires a PluginMap.")
 		return
 	end
 
-	local valid, err = validate.all(plugins)
-	if not valid then
-		log.error("Validation failed: " .. (err or "unknown error"))
-		return
-	end
-
-	-- Register plugins for later use (e.g., sync)
-	for _, plugin in ipairs(plugins) do
-		table.insert(registered_plugins, plugin)
+	-- Merge into global spec_map
+	for url, spec in pairs(plugins) do
+		spec_map[url] = spec
 	end
 
 	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
 	local lock_changed = false
 
-	for _, plugin in ipairs(plugins) do
-		if process.plugin(plugin, lock_data) then
+	-- Process each plugin (with dependency ordering)
+	for url, _ in pairs(plugins) do
+		if process.plugin(url, spec_map, lock_data) then
 			lock_changed = true
 		end
 	end
@@ -69,32 +70,25 @@ end
 function M.sync()
 	log.info("Syncing plugins...")
 
-	if #registered_plugins == 0 then
-		log.warn("No plugins registered. Call add() first.")
+	if vim.tbl_isempty(spec_map) then
+		log.warn("No plugins registered. Call setup() first.")
 		return
 	end
 
 	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
 	local lock_changed = false
 
-	-- Build set of URLs in config
-	local config_urls = {}
-	for _, plugin in ipairs(registered_plugins) do
-		local url = plugin[1] or plugin.url
-		config_urls[url] = true
-	end
-
-	-- Remove lockfile entries not in config
+	-- Remove lockfile entries not in spec_map
 	for url, _ in pairs(lock_data) do
-		if not config_urls[url] then
+		if not spec_map[url] then
 			log.info("Removing " .. url .. " from lockfile")
 			lock_data[url] = nil
 			lock_changed = true
 		end
 	end
 
-	for _, plugin in ipairs(registered_plugins) do
-		if process.sync(plugin, lock_data) then
+	for url, spec in pairs(spec_map) do
+		if process.sync(url, spec, lock_data) then
 			lock_changed = true
 		end
 	end
@@ -112,15 +106,15 @@ end
 function M.update()
 	log.info("Checking for updates...")
 
-	if #registered_plugins == 0 then
-		log.warn("No plugins registered. Call add() first.")
+	if vim.tbl_isempty(spec_map) then
+		log.warn("No plugins registered. Call setup() first.")
 		return
 	end
 
 	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
 
 	-- Phase 1: Collect all available updates
-	local updates = update_ui.collect_all(registered_plugins, lock_data)
+	local updates = update_ui.collect_all(spec_map, lock_data)
 
 	if #updates == 0 then
 		log.info("All plugins up to date.")
@@ -195,9 +189,9 @@ function M.restore()
 end
 
 ---Returns all registered plugins (for debugging).
----@return PluginList
+---@return PluginMap
 function M.get_registered()
-	return registered_plugins
+	return spec_map
 end
 
 ---Sets up wrench by loading plugins from a directory.
@@ -208,9 +202,14 @@ function M.setup(import_path)
 		return
 	end
 
-	local plugins = loader.load_all(import_path)
+	local plugins, err = loader.load_all(import_path)
 
-	if #plugins == 0 then
+	if not plugins then
+		log.error("Failed to load plugins: " .. (err or "unknown error"))
+		return
+	end
+
+	if vim.tbl_isempty(plugins) then
 		log.info("No plugins found in " .. import_path)
 		return
 	end
@@ -219,4 +218,3 @@ function M.setup(import_path)
 end
 
 return M
-

@@ -72,32 +72,35 @@ function M.collect_one(url, branch, current_commit)
 end
 
 ---Collects updates for all registered plugins.
----@param plugins PluginConfig[] List of plugins
+---@param spec_map PluginMap Map of URL to spec
 ---@param lock_data LockData Current lockfile data
 ---@return UpdateInfo[] updates List of available updates
-function M.collect_all(plugins, lock_data)
+function M.collect_all(spec_map, lock_data)
     local updates = {}
-    local seen = {}
 
-    for _, plugin in ipairs(plugins) do
-        local url = plugin[1] or plugin.url
-
-        if seen[url] then
-            goto continue
-        end
-        seen[url] = true
-
-        if plugin.commit then
+    for url, spec in pairs(spec_map) do
+        -- Skip pinned commits or tags
+        if spec.commit or spec.tag then
             goto continue
         end
 
         local current_commit = lock_data[url]
-        if not current_commit or not plugin.branch then
+        if not current_commit then
             goto continue
         end
 
+        -- Use spec branch, or detect from repo
+        local branch = spec.branch
+        if not branch then
+            local install_path = utils.get_install_path(url)
+            branch = git.get_branch(install_path)
+            if not branch then
+                goto continue
+            end
+        end
+
         log.info("Checking " .. utils.get_name(url) .. "...")
-        local info = M.collect_one(url, plugin.branch, current_commit)
+        local info = M.collect_one(url, branch, current_commit)
         if info then
             table.insert(updates, info)
         end

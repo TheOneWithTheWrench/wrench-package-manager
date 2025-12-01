@@ -68,10 +68,30 @@ require("wrench").add({
     tag = "v1.0.0",                          -- optional
     commit = "abc123...",                    -- optional, pins to exact commit
     config = function() ... end,             -- optional, runs after load
-    dependencies = { ... },                  -- optional, other plugin specs
+    dependencies = { ... },                  -- optional, URL-only refs (see below)
     ft = { "lua", "python" },                -- optional, lazy load on filetype
 }
 ```
+
+## Dependencies
+
+Dependencies are **URL-only** references — they ensure a plugin is installed before yours:
+
+```lua
+{
+    url = "https://github.com/nvim-neotest/neotest",
+    branch = "master",
+    dependencies = {
+        { url = "https://github.com/nvim-lua/plenary.nvim" },
+        { url = "https://github.com/nvim-neotest/nvim-nio" },
+    },
+    config = function()
+        require("neotest").setup()
+    end,
+}
+```
+
+If a dependency needs configuration (branch, tag, config function), create a dedicated spec file for it. This ensures each plugin has a single source of truth.
 
 ## Commands
 

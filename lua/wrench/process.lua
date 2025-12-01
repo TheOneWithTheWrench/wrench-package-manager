@@ -3,34 +3,54 @@ local log = require("wrench.log")
 local git = require("wrench.git")
 local utils = require("wrench.utils")
 
---- Tracks which plugins have been processed (deduplication).
---- NOTE: Future optimization - plugins at same dependency level could be cloned in parallel.
+--- Tracks which plugins have been processed (deduplication within a session).
 ---@type table<string, boolean>
 local processed = {}
 
---- Tracks which plugins have been synced (deduplication).
+--- Tracks which plugins have been synced (deduplication within a session).
 ---@type table<string, boolean>
 local synced = {}
 
----Processes a single plugin (and its dependencies).
----@param plugin PluginConfig The plugin to process.
+---Checks if a plugin install is valid (has more than just .git).
+---@param path string The plugin install path.
+---@return boolean is_valid True if install is valid.
+local function is_valid_install(path)
+	if vim.fn.isdirectory(path) == 0 then
+		return false
+	end
+	local entries = vim.fn.readdir(path)
+	for _, entry in ipairs(entries) do
+		if entry ~= ".git" then
+			return true
+		end
+	end
+	return false
+end
+
+---Processes a single plugin by URL (and its dependencies first).
+---@param url string The plugin URL to process.
+---@param spec_map PluginMap The map of all specs.
 ---@param lock_data LockData The lockfile data to update.
 ---@return boolean lock_changed True if lockfile was updated.
-function M.plugin(plugin, lock_data)
-	local url = plugin[1] or plugin.url
-
-	-- Skip if already processed (deduplication)
-	if processed[url] then --- NOTE: Future problem: What if same plugin with different branch/commit?
+function M.plugin(url, spec_map, lock_data)
+	if processed[url] then
 		return false
 	end
 	processed[url] = true
 
+	local spec = spec_map[url]
+	if not spec then
+		log.error("No spec found for " .. url)
+		return false
+	end
+
 	local lock_changed = false
 
-	-- Process dependencies recursively first
-	if plugin.dependencies then
-		for _, dep in ipairs(plugin.dependencies) do
-			if M.plugin(dep, lock_data) then
+	-- Process dependencies first (recursive)
+	if spec.dependencies then
+		for _, dep in ipairs(spec.dependencies) do
+			local dep_url = dep[1] or dep.url
+			if M.plugin(dep_url, spec_map, lock_data) then
 				lock_changed = true
 			end
 		end
@@ -38,13 +58,17 @@ function M.plugin(plugin, lock_data)
 
 	local install_path = utils.get_install_path(url)
 
-	-- Clone if not already installed
-	if vim.fn.isdirectory(install_path) == 0 then
+	if not is_valid_install(install_path) then
+		-- Remove corrupted install if exists
+		if vim.fn.isdirectory(install_path) == 1 then
+			log.warn("Removing corrupted install: " .. utils.get_name(url))
+			vim.fn.delete(install_path, "rf")
+		end
 		log.info("Installing " .. utils.get_name(url) .. "...")
 		local opts = {
-			branch = plugin.branch,
-			tag = plugin.tag,
-			commit = plugin.commit,
+			branch = spec.branch,
+			tag = spec.tag,
+			commit = spec.commit,
 		}
 		local ok, err = git.clone(url, install_path, opts)
 		if not ok then
@@ -65,51 +89,40 @@ function M.plugin(plugin, lock_data)
 	end
 
 	-- Load plugin (immediately or deferred)
-	if plugin.ft then
+	if spec.ft then
 		vim.api.nvim_create_autocmd("FileType", {
-			pattern = plugin.ft,
+			pattern = spec.ft,
 			once = true,
 			callback = function()
 				vim.opt.rtp:prepend(install_path)
-				if plugin.config and type(plugin.config) == "function" then
-					plugin.config()
+				if spec.config and type(spec.config) == "function" then
+					spec.config()
 				end
 			end,
 		})
 	else
 		vim.opt.rtp:prepend(install_path)
-		if plugin.config and type(plugin.config) == "function" then
-			plugin.config()
+		if spec.config and type(spec.config) == "function" then
+			spec.config()
 		end
 	end
 
 	return lock_changed
 end
 
----Syncs a single plugin (and its dependencies) to the specified commit/tag/branch.
----@param plugin PluginConfig The plugin to sync.
+---Syncs a single plugin to the specified commit/tag/branch.
+---@param url string The plugin URL.
+---@param spec PluginSpec The plugin spec.
 ---@param lock_data LockData The lockfile data to update.
 ---@return boolean lock_changed True if lockfile was updated.
-function M.sync(plugin, lock_data)
-	local url = plugin[1] or plugin.url
-
-	-- Skip if already synced (deduplication)
+function M.sync(url, spec, lock_data)
+	-- Skip if already synced
 	if synced[url] then
 		return false
 	end
 	synced[url] = true
 
 	local lock_changed = false
-
-	-- Sync dependencies first
-	if plugin.dependencies then
-		for _, dep in ipairs(plugin.dependencies) do
-			if M.sync(dep, lock_data) then
-				lock_changed = true
-			end
-		end
-	end
-
 	local install_path = utils.get_install_path(url)
 
 	-- Skip if not installed
@@ -120,34 +133,34 @@ function M.sync(plugin, lock_data)
 	local ok, err
 	local new_commit
 
-	if plugin.commit then
+	if spec.commit then
 		-- Specific commit requested — checkout if different
 		local current_commit = git.get_head(install_path)
-		if current_commit and current_commit ~= plugin.commit then
-			ok, err = git.checkout(install_path, plugin.commit)
+		if current_commit and current_commit ~= spec.commit then
+			ok, err = git.checkout(install_path, spec.commit)
 			if ok then
-				new_commit = plugin.commit
-				log.info("Synced " .. url .. " to " .. plugin.commit:sub(1, 7))
+				new_commit = spec.commit
+				log.info("Synced " .. url .. " to " .. spec.commit:sub(1, 7))
 			end
 		else
 			-- Already at correct commit, but ensure lockfile is updated
-			new_commit = plugin.commit
+			new_commit = spec.commit
 		end
-	elseif plugin.tag then
+	elseif spec.tag then
 		-- Tag requested — checkout tag
-		ok, err = git.checkout(install_path, plugin.tag)
+		ok, err = git.checkout(install_path, spec.tag)
 		if ok then
 			new_commit = git.get_head(install_path)
-			log.info("Synced " .. url .. " to tag " .. plugin.tag)
+			log.info("Synced " .. url .. " to tag " .. spec.tag)
 		end
-	elseif plugin.branch then
+	elseif spec.branch then
 		-- Branch only — checkout branch first (in case of detached HEAD), then pull
-		ok, err = git.checkout(install_path, plugin.branch)
+		ok, err = git.checkout(install_path, spec.branch)
 		if ok then
 			ok, err = git.pull(install_path)
 			if ok then
 				new_commit = git.get_head(install_path)
-				log.info("Synced " .. url .. " to latest on " .. plugin.branch)
+				log.info("Synced " .. url .. " to latest on " .. spec.branch)
 			end
 		end
 	end
@@ -192,10 +205,10 @@ function M.restore(url, commit)
 end
 
 ---Removes a plugin directory.
----@param url string The plugin URL.
+---@param name string The plugin name (directory name).
 ---@return boolean success True if removal succeeded.
-function M.remove(url)
-	local install_path = utils.get_install_path(url)
+function M.remove(name)
+	local install_path = utils.INSTALL_PATH .. "/" .. name
 
 	if vim.fn.isdirectory(install_path) == 0 then
 		return true -- Already gone
@@ -203,10 +216,10 @@ function M.remove(url)
 
 	local ok = vim.fn.delete(install_path, "rf")
 	if ok == 0 then
-		log.info("Removed " .. url)
+		log.info("Removed " .. name)
 		return true
 	else
-		log.error("Failed to remove " .. url)
+		log.error("Failed to remove " .. name)
 		return false
 	end
 end
