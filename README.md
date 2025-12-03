@@ -70,6 +70,7 @@ require("wrench").add({
     config = function() ... end,             -- optional, runs after load
     dependencies = { ... },                  -- optional, URL-only refs (see below)
     ft = { "lua", "python" },                -- optional, lazy load on filetype
+    event = "BufReadPost",                   -- optional, lazy load on event
 }
 ```
 
@@ -104,12 +105,19 @@ If a dependency needs configuration (branch, tag, config function), create a ded
 
 ## Lazy loading
 
-Plugins with `ft` specified will only load when you open a file of that type:
+Plugins with `ft` or `event` specified will only load when triggered:
 
 ```lua
+-- Load on filetype
 {
     url = "https://github.com/rust-lang/rust.vim",
     ft = { "rust" },
+}
+
+-- Load on event (any Neovim autocmd event)
+{
+    url = "https://github.com/folke/noice.nvim",
+    event = "BufReadPost",
 }
 ```
 

@@ -3,12 +3,13 @@ local M = {}
 local ALLOWED_SPEC_FIELDS = {
 	url = true,
 	[1] = true, -- shorthand for url
+	ft = true,
+    event = true,
 	branch = true,
 	tag = true,
 	commit = true,
 	config = true,
 	dependencies = true,
-	ft = true,
 }
 
 ---Validates a dependency reference (url only).

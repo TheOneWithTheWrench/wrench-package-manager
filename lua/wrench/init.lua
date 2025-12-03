@@ -4,7 +4,6 @@ local M = {}
 local log = require("wrench.log")
 local lockfile = require("wrench.lockfile")
 local utils = require("wrench.utils")
-local validate = require("wrench.validate")
 local process = require("wrench.process")
 local commands = require("wrench.commands")
 local update_ui = require("wrench.update")
@@ -21,12 +20,13 @@ local spec_map = {}
 
 ---@class PluginSpec
 ---@field url string The full plugin URL.
+---@field ft? string[] (Optional) Only load plugin when opening files of this type.
+---@field event? string[] (Optional) Only load plugin when opening files of this type.
 ---@field dependencies? DependencyRef[] (Optional) Plugins that must be loaded first (url only).
 ---@field branch? string (Optional) Specify a git branch to clone.
 ---@field tag? string (Optional) Specify a git tag to checkout.
 ---@field commit? string (Optional) Pin to a specific commit hash.
 ---@field config? function (Optional) A function to run after the plugin is loaded.
----@field ft? string[] (Optional) Only load plugin when opening files of this type.
 
 --- A list of plugins to be processed, each as a PluginSpec table.
 ---@alias PluginList PluginSpec[]
