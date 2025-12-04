@@ -39,11 +39,11 @@ local function path_to_module(file_path, base_path)
 	return module
 end
 
----Checks if a table is a single PluginSpec (has url field or first element is a string).
+---Checks if a table is a single PluginSpec (has url field).
 ---@param tbl table The table to check.
 ---@return boolean is_single True if it's a single PluginSpec.
 local function is_single_spec(tbl)
-	return tbl.url ~= nil or type(tbl[1]) == "string"
+	return tbl.url ~= nil
 end
 
 ---Checks if a spec has configuration (more than just url).
@@ -67,7 +67,7 @@ end
 ---@return boolean success True if merged successfully.
 ---@return string? error Error message if conflict.
 local function merge_spec(spec_map, spec, source_file, sources)
-	local url = spec[1] or spec.url
+	local url = spec.url
 
 	local existing = spec_map[url]
 	if not existing then
@@ -108,7 +108,7 @@ local function collect_dependencies(spec_map, spec, sources)
 	end
 
 	for _, dep in ipairs(spec.dependencies) do
-		local url = dep[1] or dep.url
+		local url = dep.url
 		if not spec_map[url] then
 			-- Add as bare spec (just url, no config)
 			spec_map[url] = { url = url }
@@ -117,11 +117,11 @@ local function collect_dependencies(spec_map, spec, sources)
 	end
 end
 
----Loads all plugin specs from a directory and returns a merged map.
+---Scans a directory for plugin specs and returns a merged map.
 ---@param import_path string The import path relative to lua/ (e.g., "plugins").
 ---@return PluginMap? spec_map Map of URL to canonical spec, or nil on error.
----@return string? error Error message if loading failed.
-function M.load_all(import_path)
+---@return string? error Error message if scanning failed.
+function M.find_all(import_path)
 	local base_path = vim.fn.stdpath("config") .. "/lua"
 	local full_path = base_path .. "/" .. import_path
 
@@ -132,7 +132,7 @@ function M.load_all(import_path)
 
 	local files = scan_directory(full_path)
 
-	-- Phase 1: Load and validate all specs
+	-- Phase 1: Require and validate all specs
 	---@type {spec: PluginSpec, source: string}[]
 	local all_specs = {}
 
@@ -142,10 +142,10 @@ function M.load_all(import_path)
 
 		local ok, result = pcall(require, module_name)
 		if not ok then
-			log.error("Failed to load " .. relative_path .. ": " .. result)
+			log.error("Failed to require " .. relative_path .. ": " .. result)
 		elseif result ~= nil then
 			if type(result) ~= "table" then
-				log.error("Failed to load " .. relative_path .. ": expected PluginSpec or PluginList, got " .. type(result))
+				log.error("Invalid spec in " .. relative_path .. ": expected PluginSpec or PluginList, got " .. type(result))
 			elseif is_single_spec(result) then
 				local valid, err = validate.spec(result)
 				if valid then
@@ -159,7 +159,7 @@ function M.load_all(import_path)
 					if valid then
 						table.insert(all_specs, { spec = spec, source = relative_path })
 					else
-						local url = spec[1] or spec.url or "unknown"
+						local url = spec.url or "unknown"
 						return nil, relative_path .. " (" .. url .. "): " .. err
 					end
 				end

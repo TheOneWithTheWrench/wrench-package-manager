@@ -7,7 +7,7 @@ local utils = require("wrench.utils")
 local process = require("wrench.process")
 local commands = require("wrench.commands")
 local update_ui = require("wrench.update")
-local loader = require("wrench.loader")
+local specs = require("wrench.specs")
 
 commands.setup()
 
@@ -34,6 +34,29 @@ local spec_map = {}
 --- A map of plugin URL to its canonical spec.
 ---@alias PluginMap table<string, PluginSpec>
 
+---Sets up wrench by scanning for plugins in a directory.
+---@param import_path string The path relative to lua/ to scan for plugin specs (e.g., "plugins").
+function M.setup(import_path)
+	if not import_path or type(import_path) ~= "string" then
+		log.error("setup() requires an import path (e.g., 'plugins')")
+		return
+	end
+
+	local plugins, err = specs.find_all(import_path)
+
+	if not plugins then
+		log.error("Failed to find plugins: " .. (err or "unknown error"))
+		return
+	end
+
+	if vim.tbl_isempty(plugins) then
+		log.info("No plugins found in " .. import_path)
+		return
+	end
+
+	M.add(plugins)
+end
+
 --- Adds and processes a map of plugins.
 ---@param plugins PluginMap A map of URL to PluginSpec.
 function M.add(plugins)
@@ -50,9 +73,9 @@ function M.add(plugins)
 	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
 	local lock_changed = false
 
-	-- Process each plugin (with dependency ordering)
+	-- Phase 1: Ensure all plugins are installed
 	for url, _ in pairs(plugins) do
-		if process.plugin(url, spec_map, lock_data) then
+		if process.ensure_installed(url, spec_map, lock_data) then
 			lock_changed = true
 		end
 	end
@@ -62,6 +85,11 @@ function M.add(plugins)
 		if not ok then
 			log.error("Failed to write lockfile: " .. (write_err or "unknown error"))
 		end
+	end
+
+	-- Phase 2: Set up loading for all plugins
+	for url, _ in pairs(plugins) do
+		process.setup_loading(url, spec_map)
 	end
 end
 
@@ -192,29 +220,6 @@ end
 ---@return PluginMap
 function M.get_registered()
 	return spec_map
-end
-
----Sets up wrench by loading plugins from a directory.
----@param import_path string The path relative to lua/ to scan for plugin specs (e.g., "plugins").
-function M.setup(import_path)
-	if not import_path or type(import_path) ~= "string" then
-		log.error("setup() requires an import path (e.g., 'plugins')")
-		return
-	end
-
-	local plugins, err = loader.load_all(import_path)
-
-	if not plugins then
-		log.error("Failed to load plugins: " .. (err or "unknown error"))
-		return
-	end
-
-	if vim.tbl_isempty(plugins) then
-		log.info("No plugins found in " .. import_path)
-		return
-	end
-
-	M.add(plugins)
 end
 
 return M

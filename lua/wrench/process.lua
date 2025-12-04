@@ -3,9 +3,17 @@ local log = require("wrench.log")
 local git = require("wrench.git")
 local utils = require("wrench.utils")
 
---- Tracks which plugins have been processed (deduplication within a session).
+--- Tracks which plugins have been installed (deduplication within a session).
 ---@type table<string, boolean>
-local processed = {}
+local installed = {}
+
+--- Tracks which plugins have had loading set up (deduplication within a session).
+---@type table<string, boolean>
+local loading_setup = {}
+
+--- Tracks which plugins have actually been loaded at runtime.
+---@type table<string, boolean>
+local loaded = {}
 
 --- Tracks which plugins have been synced (deduplication within a session).
 ---@type table<string, boolean>
@@ -27,16 +35,16 @@ local function is_valid_install(path)
     return false
 end
 
----Processes a single plugin by URL (and its dependencies first).
----@param url string The plugin URL to process.
+---Ensures a plugin and its dependencies are installed.
+---@param url string The plugin URL to install.
 ---@param spec_map PluginMap The map of all specs.
 ---@param lock_data LockData The lockfile data to update.
 ---@return boolean lock_changed True if lockfile was updated.
-function M.plugin(url, spec_map, lock_data)
-    if processed[url] then
+function M.ensure_installed(url, spec_map, lock_data)
+    if installed[url] then
         return false
     end
-    processed[url] = true
+    installed[url] = true
 
     local spec = spec_map[url]
     if not spec then
@@ -46,14 +54,10 @@ function M.plugin(url, spec_map, lock_data)
 
     local lock_changed = false
 
-    -- Process dependencies first (recursive)
     if spec.dependencies then
         for _, dep in ipairs(spec.dependencies) do
-            local dep_url = dep[1] or dep.url
-            -- There is definitely a bug here that if a dependency is
-            -- specified to be lazy loaded, then this will be a problem.
-            -- I'll fix it later...
-            if M.plugin(dep_url, spec_map, lock_data) then
+            local dep_url = dep.url
+            if M.ensure_installed(dep_url, spec_map, lock_data) then
                 lock_changed = true
             end
         end
@@ -62,7 +66,6 @@ function M.plugin(url, spec_map, lock_data)
     local install_path = utils.get_install_path(url)
 
     if not is_valid_install(install_path) then
-        -- Remove corrupted install if exists
         if vim.fn.isdirectory(install_path) == 1 then
             log.warn("Removing corrupted install: " .. utils.get_name(url))
             vim.fn.delete(install_path, "rf")
@@ -82,7 +85,6 @@ function M.plugin(url, spec_map, lock_data)
         log.info("Installed " .. url)
     end
 
-    -- Ensure lockfile entry exists
     if not lock_data[url] then
         local commit = git.get_head(install_path)
         if commit then
@@ -91,52 +93,90 @@ function M.plugin(url, spec_map, lock_data)
         end
     end
 
-    -- We create a group per plugin to manage autocommands
-    -- This allows us to clear them when the plugin is loaded
-    local group_name = "PluginLoad_" .. url:gsub("[^%w]", "_")
-    local group = vim.api.nvim_create_augroup(group_name, { clear = true })
-    local loaded = false
-    local is_lazy = false
+    return lock_changed
+end
 
-    -- Define the loader locally so it captures 'spec' and 'install_path'
-    local function load_this_plugin()
-        if loaded then return end
-        loaded = true
+---Loads a plugin immediately (adds to rtp, runs config).
+---Used internally when dependencies need to be loaded.
+---@param url string The plugin URL.
+---@param spec_map PluginMap The map of all specs.
+local function load_plugin_now(url, spec_map)
+    if loaded[url] then
+        return
+    end
+    loaded[url] = true
 
-        -- Clear autocommands for this plugin
-        -- after it has been loaded once
-        vim.api.nvim_clear_autocmds({ group = group })
+    local spec = spec_map[url]
+    if not spec then
+        return
+    end
 
-        vim.opt.rtp:prepend(install_path)
-        if spec.config and type(spec.config) == "function" then
-            spec.config()
+    if spec.dependencies then
+        for _, dep in ipairs(spec.dependencies) do
+            local dep_url = dep.url
+            load_plugin_now(dep_url, spec_map)
         end
     end
 
+    local install_path = utils.get_install_path(url)
+    vim.opt.rtp:prepend(install_path)
+
+    if spec.config and type(spec.config) == "function" then
+        spec.config()
+    end
+end
+
+---Sets up loading behavior for a plugin.
+---@param url string The plugin URL.
+---@param spec_map PluginMap The map of all specs.
+function M.setup_loading(url, spec_map)
+    if loading_setup[url] then
+        return
+    end
+    loading_setup[url] = true
+
+    local spec = spec_map[url]
+    if not spec then
+        return
+    end
+
+    if spec.dependencies then
+        for _, dep in ipairs(spec.dependencies) do
+            local dep_url = dep.url
+            M.setup_loading(dep_url, spec_map)
+        end
+    end
+
+    local is_lazy = spec.ft or spec.event
+
+    if not is_lazy then
+        load_plugin_now(url, spec_map)
+        return
+    end
+
+    local group_name = "WrenchLoad_" .. url:gsub("[^%w]", "_")
+    local group = vim.api.nvim_create_augroup(group_name, { clear = true })
+
+    local function trigger_load()
+        vim.api.nvim_del_augroup_by_id(group)
+        load_plugin_now(url, spec_map)
+    end
+
     if spec.ft then
-        is_lazy = true
         vim.api.nvim_create_autocmd("FileType", {
             pattern = spec.ft,
-            group = group, -- Use group instead of once=true
-            callback = load_this_plugin,
+            group = group,
+            callback = trigger_load,
         })
     end
 
     if spec.event then
-        is_lazy = true
         vim.api.nvim_create_autocmd(spec.event, {
             pattern = "*",
-            group = group, -- Use group instead of once=true
-            callback = load_this_plugin,
+            group = group,
+            callback = trigger_load,
         })
     end
-
-    -- Fallback: Load immediately if no lazy triggers defined
-    if not is_lazy then
-        load_this_plugin()
-    end
-
-    return lock_changed
 end
 
 ---Syncs a single plugin to the specified commit/tag/branch.
@@ -145,7 +185,6 @@ end
 ---@param lock_data LockData The lockfile data to update.
 ---@return boolean lock_changed True if lockfile was updated.
 function M.sync(url, spec, lock_data)
-    -- Skip if already synced
     if synced[url] then
         return false
     end
@@ -154,7 +193,6 @@ function M.sync(url, spec, lock_data)
     local lock_changed = false
     local install_path = utils.get_install_path(url)
 
-    -- Skip if not installed
     if vim.fn.isdirectory(install_path) == 0 then
         return lock_changed
     end
@@ -163,7 +201,6 @@ function M.sync(url, spec, lock_data)
     local new_commit
 
     if spec.commit then
-        -- Specific commit requested — checkout if different
         local current_commit = git.get_head(install_path)
         if current_commit and current_commit ~= spec.commit then
             ok, err = git.checkout(install_path, spec.commit)
@@ -172,18 +209,15 @@ function M.sync(url, spec, lock_data)
                 log.info("Synced " .. url .. " to " .. spec.commit:sub(1, 7))
             end
         else
-            -- Already at correct commit, but ensure lockfile is updated
             new_commit = spec.commit
         end
     elseif spec.tag then
-        -- Tag requested — checkout tag
         ok, err = git.checkout(install_path, spec.tag)
         if ok then
             new_commit = git.get_head(install_path)
             log.info("Synced " .. url .. " to tag " .. spec.tag)
         end
     elseif spec.branch then
-        -- Branch only — checkout branch first (in case of detached HEAD), then pull
         ok, err = git.checkout(install_path, spec.branch)
         if ok then
             ok, err = git.pull(install_path)
@@ -220,7 +254,7 @@ function M.restore(url, commit)
 
     local current_commit = git.get_head(install_path)
     if current_commit == commit then
-        return true -- Already at correct commit
+        return true
     end
 
     local ok, err = git.checkout(install_path, commit)
@@ -240,7 +274,7 @@ function M.remove(name)
     local install_path = utils.INSTALL_PATH .. "/" .. name
 
     if vim.fn.isdirectory(install_path) == 0 then
-        return true -- Already gone
+        return true
     end
 
     local ok = vim.fn.delete(install_path, "rf")

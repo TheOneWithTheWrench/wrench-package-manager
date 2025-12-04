@@ -2,9 +2,8 @@ local M = {}
 
 local ALLOWED_SPEC_FIELDS = {
 	url = true,
-	[1] = true, -- shorthand for url
 	ft = true,
-    event = true,
+	event = true,
 	branch = true,
 	tag = true,
 	commit = true,
@@ -21,14 +20,13 @@ function M.dependency(dep)
 		return false, "expected a table"
 	end
 
-	local url = dep[1] or dep.url
-	if not url or type(url) ~= "string" then
+	if not dep.url or type(dep.url) ~= "string" then
 		return false, "missing 'url' field"
 	end
 
 	-- Check for disallowed fields
 	for key, _ in pairs(dep) do
-		if key ~= "url" and key ~= 1 then
+		if key ~= "url" then
 			return false, string.format(
 				"should only have 'url' field, found '%s'\n\n       If you need to configure this plugin, create a dedicated spec file.",
 				key
@@ -48,9 +46,8 @@ function M.spec(spec)
 		return false, "expected a PluginSpec table"
 	end
 
-	local url = spec[1] or spec.url
-	if not url or type(url) ~= "string" then
-		return false, "missing URL (provide as first element or 'url' field)"
+	if not spec.url or type(spec.url) ~= "string" then
+		return false, "missing 'url' field"
 	end
 
 	-- Check for unknown fields
@@ -71,10 +68,9 @@ function M.spec(spec)
 		end
 
 		for i, dep in ipairs(spec.dependencies) do
-			local dep_url = dep[1] or dep.url
 			local valid, err = M.dependency(dep)
 			if not valid then
-				return false, string.format("dependency '%s': %s", dep_url or ("#" .. i), err)
+				return false, string.format("dependency '%s': %s", dep.url or ("#" .. i), err)
 			end
 		end
 	end
@@ -90,7 +86,7 @@ function M.all(plugins)
 	for _, spec in ipairs(plugins) do
 		local valid, err = M.spec(spec)
 		if not valid then
-			local url = type(spec) == "table" and (spec[1] or spec.url) or "unknown"
+			local url = type(spec) == "table" and spec.url or "unknown"
 			return false, url .. ": " .. (err or "unknown error")
 		end
 	end
