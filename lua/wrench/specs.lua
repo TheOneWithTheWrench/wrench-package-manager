@@ -55,6 +55,7 @@ local function has_configuration(spec)
 		or spec.tag ~= nil
 		or spec.commit ~= nil
 		or spec.ft ~= nil
+		or spec.keys ~= nil
 		or spec.dependencies ~= nil
 end
 

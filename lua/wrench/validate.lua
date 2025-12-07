@@ -4,12 +4,48 @@ local ALLOWED_SPEC_FIELDS = {
 	url = true,
 	ft = true,
 	event = true,
+	keys = true,
 	branch = true,
 	tag = true,
 	commit = true,
 	config = true,
 	dependencies = true,
 }
+
+---Validates a single key spec.
+---@param key KeySpec The key spec to validate.
+---@return boolean valid True if valid.
+---@return string? error Error message if invalid.
+function M.key(key)
+	if type(key) ~= "table" then
+		return false, "expected a table"
+	end
+
+	if not key.lhs or type(key.lhs) ~= "string" then
+		return false, "missing or invalid 'lhs' field (must be a string)"
+	end
+
+	if key.rhs == nil then
+		return false, "missing 'rhs' field"
+	end
+
+	if type(key.rhs) ~= "function" then
+		return false, "invalid 'rhs' field (must be a function)"
+	end
+
+	if key.mode ~= nil then
+		if type(key.mode) ~= "table" then
+			return false, "invalid 'mode' field (must be a table of strings)"
+		end
+		for i, m in ipairs(key.mode) do
+			if type(m) ~= "string" then
+				return false, string.format("invalid 'mode[%d]' (must be a string)", i)
+			end
+		end
+	end
+
+	return true
+end
 
 ---Validates a dependency reference (url only).
 ---@param dep DependencyRef The dependency to validate.
@@ -71,6 +107,20 @@ function M.spec(spec)
 			local valid, err = M.dependency(dep)
 			if not valid then
 				return false, string.format("dependency '%s': %s", dep.url or ("#" .. i), err)
+			end
+		end
+	end
+
+	-- Validate keys
+	if spec.keys then
+		if type(spec.keys) ~= "table" then
+			return false, "keys must be a table"
+		end
+
+		for i, key in ipairs(spec.keys) do
+			local valid, err = M.key(key)
+			if not valid then
+				return false, string.format("key #%d (%s): %s", i, key.lhs or "unknown", err)
 			end
 		end
 	end

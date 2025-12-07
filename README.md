@@ -71,6 +71,7 @@ require("wrench").add({
     dependencies = { ... },                  -- optional, URL-only refs (see below)
     ft = { "lua", "python" },                -- optional, lazy load on filetype
     event = "BufReadPost",                   -- optional, lazy load on event
+    keys = { ... },                          -- optional, lazy load on keypress (see below)
 }
 ```
 
@@ -105,7 +106,7 @@ If a dependency needs configuration (branch, tag, config function), create a ded
 
 ## Lazy loading
 
-Plugins with `ft` or `event` specified will only load when triggered:
+Plugins with `ft`, `event`, or `keys` specified will only load when triggered:
 
 ```lua
 -- Load on filetype
@@ -119,7 +120,27 @@ Plugins with `ft` or `event` specified will only load when triggered:
     url = "https://github.com/folke/noice.nvim",
     event = "BufReadPost",
 }
+
+-- Load on keypress
+{
+    url = "https://github.com/nvim-telescope/telescope.nvim",
+    keys = {
+        { lhs = "<leader>ff", rhs = function() require("telescope.builtin").find_files() end, desc = "Find files" },
+        { lhs = "<leader>fg", rhs = function() require("telescope.builtin").live_grep() end, mode = { "n", "v" } },
+    },
+}
 ```
+
+### Key spec
+
+Each key in the `keys` table supports:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `lhs` | `string` | Yes | The key sequence to bind |
+| `rhs` | `function` | Yes | The action to execute |
+| `mode` | `string[]` | No | Mode(s) for the keymap (defaults to `{"n"}`) |
+| `...` | `any` | No | Any other valid `vim.keymap.set` option (`desc`, `silent`, etc.) |
 
 ## Plugins with build steps
 

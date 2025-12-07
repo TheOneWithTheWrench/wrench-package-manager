@@ -147,7 +147,7 @@ function M.setup_loading(url, spec_map)
         end
     end
 
-    local is_lazy = spec.ft or spec.event
+    local is_lazy = spec.ft or spec.event or spec.keys
 
     if not is_lazy then
         load_plugin_now(url, spec_map)
@@ -158,6 +158,9 @@ function M.setup_loading(url, spec_map)
     local group = vim.api.nvim_create_augroup(group_name, { clear = true })
 
     local function trigger_load()
+        if loaded[url] then
+            return
+        end
         vim.api.nvim_del_augroup_by_id(group)
         load_plugin_now(url, spec_map)
     end
@@ -176,6 +179,31 @@ function M.setup_loading(url, spec_map)
             group = group,
             callback = trigger_load,
         })
+    end
+
+    if spec.keys then
+        for _, key in ipairs(spec.keys) do
+            local lhs = key.lhs
+            local rhs = key.rhs
+            local modes = key.mode or { "n" }
+
+            local opts = {}
+            for k, v in pairs(key) do
+                if k ~= "lhs" and k ~= "rhs" and k ~= "mode" then
+                    opts[k] = v
+                end
+            end
+
+            for _, mode in ipairs(modes) do
+                vim.keymap.set(mode, lhs, function()
+                    vim.keymap.del(mode, lhs)
+                    load_plugin_now(url, spec_map)
+                    vim.keymap.set(mode, lhs, rhs, opts)
+                    local keys = vim.api.nvim_replace_termcodes(lhs, true, false, true)
+                    vim.api.nvim_feedkeys(keys, "m", false)
+                end, opts)
+            end
+        end
     end
 end
 

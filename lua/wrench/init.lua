@@ -18,10 +18,17 @@ local spec_map = {}
 ---@class DependencyRef
 ---@field url string The plugin URL. This is the ONLY allowed field for dependencies.
 
+---@class KeySpec
+---@field lhs string Required. The key sequence to bind.
+---@field rhs function Required. The action to execute.
+---@field mode? string[] (Optional) Mode(s) for the keymap. Defaults to {"n"}.
+---@field [string] any Any other valid vim.keymap.set option (desc, silent, buffer, etc.)
+
 ---@class PluginSpec
 ---@field url string The full plugin URL.
 ---@field ft? string[] (Optional) Only load plugin when opening files of this type.
 ---@field event? string[] (Optional) Only load plugin when opening files of this type.
+---@field keys? KeySpec[] (Optional) Lazy-load on keypress and set up keymaps.
 ---@field dependencies? DependencyRef[] (Optional) Plugins that must be loaded first (url only).
 ---@field branch? string (Optional) Specify a git branch to clone.
 ---@field tag? string (Optional) Specify a git tag to checkout.
