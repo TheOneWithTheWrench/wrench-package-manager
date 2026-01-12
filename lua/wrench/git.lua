@@ -52,7 +52,7 @@ end
 ---@return boolean success True if fetch succeeded.
 ---@return string? error Error message if fetch failed.
 function M.fetch(path)
-	local result = vim.system({ "git", "fetch", "--tags" }, { cwd = path }):wait()
+	local result = vim.system({ "git", "fetch", "--tags", "--force" }, { cwd = path }):wait()
 
 	if result.code ~= 0 then
 		return false, "Failed to fetch: " .. (result.stderr or "unknown error")

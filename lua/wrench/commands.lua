@@ -100,7 +100,7 @@ function M.update()
 		-- Prompt for approval
 		local prompt = string.format("[%d/%d] Update? (y/n/q): ", index, update_count)
 		local response = vim.fn.input(prompt)
-		print("") -- newline after input
+		print("\n") -- newline after input
 
 		if response:lower() == "q" then
 			print("Update cancelled")

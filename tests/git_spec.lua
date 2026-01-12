@@ -195,6 +195,31 @@ describe("git", function()
 			cleanup(dir)
 		end)
 
+		it("succeeds when remote tag is moved to different commit", function()
+			-- arrange
+			local dir = new_test_dir()
+			local source = dir .. "/source"
+			local clone = dir .. "/clone"
+			init_repo(source, with_commit("initial"), with_tag("stable"))
+
+			-- Clone the repo (now has "stable" tag pointing to initial commit)
+			git.clone(source, clone)
+
+			-- Move the "stable" tag in source to a new commit
+			vim.system({ "git", "tag", "-d", "stable" }, { cwd = source }):wait()
+			vim.system({ "git", "commit", "--allow-empty", "-m", "second" }, { cwd = source }):wait()
+			vim.system({ "git", "tag", "stable" }, { cwd = source }):wait()
+
+			-- act
+			local success, err = git.fetch(clone)
+
+			-- assert
+			assert.is_true(success)
+			assert.is_nil(err)
+
+			cleanup(dir)
+		end)
+
 		it("returns error when path is not a git repository", function()
 			-- arrange
 			local dir = new_test_dir()
