@@ -72,6 +72,7 @@ require("wrench").add({
     ft = { "lua", "python" },                -- optional, lazy load on filetype
     event = "BufReadPost",                   -- optional, lazy load on event
     keys = { ... },                          -- optional, lazy load on keypress (see below)
+    cmd = { "Mason", "MasonInstall" },       -- optional, lazy load on command
 }
 ```
 
@@ -106,7 +107,7 @@ If a dependency needs configuration (branch, tag, config function), create a ded
 
 ## Lazy loading
 
-Plugins with `ft`, `event`, or `keys` specified will only load when triggered:
+Plugins with `ft`, `event`, `keys`, or `cmd` specified will only load when triggered:
 
 ```lua
 -- Load on filetype
@@ -128,6 +129,15 @@ Plugins with `ft`, `event`, or `keys` specified will only load when triggered:
         { lhs = "<leader>ff", rhs = function() require("telescope.builtin").find_files() end, desc = "Find files" },
         { lhs = "<leader>fg", rhs = function() require("telescope.builtin").live_grep() end, mode = { "n", "v" } },
     },
+}
+
+-- Load on command
+{
+    url = "https://github.com/williamboman/mason.nvim",
+    cmd = { "Mason", "MasonInstall", "MasonUpdate" },
+    config = function()
+        require("mason").setup()
+    end,
 }
 ```
 

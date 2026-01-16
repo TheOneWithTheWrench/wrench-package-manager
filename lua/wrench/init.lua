@@ -21,6 +21,7 @@ require("wrench.commands")
 ---@field ft? string[] (Optional) Only load plugin when opening files of this type.
 ---@field event? string[] (Optional) Only load plugin when opening files of this type.
 ---@field keys? KeySpec[] (Optional) Lazy-load on keypress and set up keymaps.
+---@field cmd? string[] (Optional) Lazy-load on command (e.g., { "Mason", "MasonInstall" }).
 ---@field dependencies? DependencyRef[] (Optional) Plugins that must be loaded first (url only).
 ---@field branch? string (Optional) Specify a git branch to clone.
 ---@field tag? string (Optional) Specify a git tag to checkout.

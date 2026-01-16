@@ -315,5 +315,75 @@ describe("loader", function()
 
 			ctx.cleanup()
 		end)
+
+		it("lazy loads plugin on command", function()
+			-- arrange
+			local ctx = new_test_context()
+			local plugin_path = create_folder(ctx.install_dir, "cmd-plugin")
+
+			local config_called = false
+			local specs = {
+				["https://github.com/user/cmd-plugin"] = {
+					url = "https://github.com/user/cmd-plugin",
+					cmd = { "TestCmd" },
+					config = function()
+						config_called = true
+						-- After loading, register the real command
+						vim.api.nvim_create_user_command("TestCmd", function()
+							-- Real command implementation
+						end, {})
+					end,
+				},
+			}
+
+			-- act
+			loader.setup_loading(specs, ctx.install_dir)
+
+			-- assert - plugin should NOT be loaded yet
+			assert.is_false(assert_in_rtp(plugin_path), "Plugin should not be in rtp yet")
+			assert.is_false(config_called, "Config should not be called yet")
+
+			-- Execute the command
+			vim.cmd("TestCmd")
+
+			-- assert - plugin should now be loaded
+			assert.is_true(assert_in_rtp(plugin_path), "Plugin should be in rtp after command")
+			assert.is_true(config_called, "Config should be called after command")
+
+			-- cleanup command
+			vim.api.nvim_del_user_command("TestCmd")
+			ctx.cleanup()
+		end)
+
+		it("does NOT load plugin on wrong command", function()
+			-- arrange
+			local ctx = new_test_context()
+			local plugin_path = create_folder(ctx.install_dir, "cmd-plugin-wrong")
+
+			local config_called = false
+			local specs = {
+				["https://github.com/user/cmd-plugin-wrong"] = {
+					url = "https://github.com/user/cmd-plugin-wrong",
+					cmd = { "TestCmdWrong" }, -- Plugin should load on :TestCmdWrong
+					config = function()
+						config_called = true
+					end,
+				},
+			}
+
+			-- act
+			loader.setup_loading(specs, ctx.install_dir)
+
+			-- Execute a DIFFERENT command (use built-in)
+			vim.cmd("echo 'hello'")
+
+			-- assert - plugin should NOT be loaded
+			assert.is_false(assert_in_rtp(plugin_path), "Plugin should not be in rtp after wrong command")
+			assert.is_false(config_called, "Config should not be called after wrong command")
+
+			-- cleanup stub command (still exists since plugin wasn't loaded)
+			vim.api.nvim_del_user_command("TestCmdWrong")
+			ctx.cleanup()
+		end)
 	end)
 end)

@@ -63,7 +63,7 @@ function M.setup_loading(specs, install_dir)
 		end
 		loading_setup[url] = true
 
-		local is_lazy = spec.ft or spec.event or spec.keys
+		local is_lazy = spec.ft or spec.event or spec.keys or spec.cmd
 
 		if not is_lazy then
 			load_plugin_now(url, spec, specs, install_dir)
@@ -118,6 +118,16 @@ function M.setup_loading(specs, install_dir)
 							vim.api.nvim_feedkeys(keys, "m", false)
 						end, opts)
 					end
+				end
+			end
+
+			if spec.cmd then
+				for _, cmd_name in ipairs(spec.cmd) do
+					vim.api.nvim_create_user_command(cmd_name, function(opts)
+						vim.api.nvim_del_user_command(cmd_name)
+						load_plugin_now(url, spec, specs, install_dir)
+						vim.cmd(cmd_name .. " " .. opts.args)
+					end, { nargs = "*" })
 				end
 			end
 		end
